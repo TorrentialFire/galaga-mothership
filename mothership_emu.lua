@@ -1,7 +1,7 @@
 -- MAME Memory access object
 local mem = manager.machine.devices[":maincpu"].spaces["program"]
 local cpu2mem = manager.machine.devices[":sub"].spaces["program"]
-local memory_taps = {}
+local memory_taps = {}                  -- table to keep taps from becoming orphaned and garbage collected
 
 -- Memory locations
 local game_started_addr     = 0x9012    -- is a game currently in progress?
@@ -33,10 +33,16 @@ local frame = 0
 local socket = emu.file("rw")
 socket:open("socket.127.0.0.1:2159")
 
+-- Useful for debugging when taps get garbage collected
+-- (i.e. they weren't properly registered with or they were removed from the memory_taps table)
+local sub = cpu2mem:add_change_notifier(
+    function(handler_type)
+        print(handler_type .. " has changed! Was something GC'd!?")
+   end
+)
+emu:register_stop(function() sub:unsubscribe() end)
+
 function ms_register_tap(addr_start, addr_end, callback, tap_name)
-    for k, v in pairs(memory_taps) do
-        print("\tTap: \"" .. k .. "\"")
-    end
     if (memory_taps[tap_name] == nil) then
         print("Tap \"" .. tap_name .. "\" not found, installing...")
         tap =
@@ -94,9 +100,11 @@ function ms_shot_fired_write_listener(offset, data, mask)
     if (sc_low_byte == 255) then
         sc_rollover = sc_rollover + 1
     end
-    sc_low_byte = data
-    shot_count = (256 * sc_rollover) + sc_low_byte
-    print("Shot: " .. tostring(shot_count))
+    if (data ~= nil) then
+        sc_low_byte = data
+        shot_count = (256 * sc_rollover) + sc_low_byte
+        print("Shot: " .. tostring(shot_count))
+    end
 end
 
 function ms_register_shot_fired_listener()
@@ -114,12 +122,14 @@ function ms_hits_write_listener(offset, data, mask)
     if (hit_low_byte == 255) then
         hit_rollover = hit_rollover + 1
     end
-    hit_low_byte = data
-    hit_count = (256 * hit_rollover) + hit_low_byte
-    if (shot_count > 0) then
-        accuracy = hit_count / shot_count * 100
-        print("Hit: " .. tostring(hit_count))
-        print("Acc: " .. tostring(accuracy))
+    if (data ~= nil) then
+        hit_low_byte = data
+        hit_count = (256 * hit_rollover) + hit_low_byte
+        if (shot_count > 0) then
+            accuracy = hit_count / shot_count * 100
+            print("Hit: " .. tostring(hit_count))
+            print("Acc: " .. tostring(accuracy))
+        end
     end
 end
 
@@ -131,6 +141,7 @@ function ms_register_hits_listener()
             hit_addr,
             "ms_hits_write_listener",
             ms_hits_write_listener)
+    memory_taps["ms_hits_write_listener"] = tap
     emu.register_stop(
         function()
             tap:remove()
