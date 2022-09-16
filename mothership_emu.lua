@@ -1,27 +1,57 @@
-
-
+-- MAME Memory access object
 local mem = manager.machine.devices[":maincpu"].spaces["program"]
 
-local game_started_addrs = {"0x9012"}
-local game_started = 0
+-- Memory locations
+local game_started_addr     = 0x9012    -- is a game currently in progress?
+local shot_addr             = 0x9846    -- lowest byte of player shots
+local score_addrs =                     -- VRAM locations of the player 1 score
+    {"0x83FF", "0x83FE", "0x83FD", "0x83FC","0x83FB","0x83FA","0x83F9","0x83F8"}
+local credits_addr = {"0x99B8"}
+local lives_addr = {"0x9820"}
+local stage_addr = {"0x9821"}
 
---function ms_get_game_started()
---    val = mem:read_u8(game_started_addrs[1])
---    if (val ~= nil) then
---        game_started = val
---    end
---end
+
+-- Mechanics and statistics
+local game_active           = false     -- boolean indicating whether a game is active
+local game_started          = 0         -- (u8:from mem) value indicating if a game has been started
+local shot_count            = 0         -- number tracking the number of shots fired in the current game, calculated via: (sc_rollover * 256) + sc_low_byte
+local sc_low_byte           = 0         -- (u8:from mem) low-byte of the number of shots fired
+local sc_rollover           = 0         -- number tracking the number of times during the current game the low-byte of the shots fired has wrapped from 255 to 0.
+local prev_stage            = 255;
+local frame = 0
+
+-- Socket for writing data and reading commands from Mothership app
+local socket = emu.file("rw")
+socket:open("socket.127.0.0.1:2159")
+
+
+-- When a game is started, reset variables that track game statistics.
+function ms_on_game_started_reset()
+    game_active = true
+    shot_count = 0
+    sc_rollover = 0
+end
+
+-- Listener for writes to 'game_started_addr' to determine whether the player
+-- has started a new game or when a game has ended.
 function ms_game_started_write_listener(offset, data, mask)
     game_started = data
-    print("Game started: " .. tostring(data))
     if (game_started == 0) then
-        print("Stable?")
+        game_active = false
     end
-    
+    if (game_started == 1) then
+        print("Game started")
+        ms_on_game_started_reset()
+    end
 end
 
 function ms_register_game_started_listener()
-    game_started_tap = mem:install_write_tap(0x9012, 0x9012, "ms_game_started_write_listener", ms_game_started_write_listener)
+    game_started_tap = 
+        mem:install_write_tap(
+            game_started_addr, 
+            game_started_addr, 
+            "ms_game_started_write_listener", 
+            ms_game_started_write_listener)
     emu.register_stop(
         function() 
             game_started_tap:remove() 
@@ -30,7 +60,30 @@ function ms_register_game_started_listener()
 end
 ms_register_game_started_listener()
 
-local score_addrs = {"0x83FF","0x83FE","0x83FD","0x83FC","0x83FB","0x83FA","0x83F9","0x83F8" }
+
+function ms_shot_fired_write_listener(offset, data, mask)
+    if (sc_low_byte == 255) then
+        sc_rollover = sc_rollover + 1
+    end
+    sc_low_byte = data
+    shot_count = (256 * sc_rollover) + sc_low_byte
+    print("Shot: " .. tostring(shot_count))
+end
+
+function ms_register_shot_fired_listener()
+    shot_fired_tap =
+        mem:install_write_tap(
+            shot_addr,
+            shot_addr,
+            "ms_shot_fired_write_listener",
+            ms_shot_fired_write_listener)
+    emu.register_stop(
+        function()
+            shot_fired_tap:remove()
+        end
+    )
+end
+ms_register_shot_fired_listener()
 
 function ms_get_score()
     score = ""
@@ -50,9 +103,6 @@ function ms_get_score()
     return ret_score
 end
 
-
-local credits_addr = {"0x99B8"}
-
 function ms_get_credits()
     val = mem:read_u8(credits_addr[1])
     if (val ~= nil) then
@@ -63,8 +113,6 @@ function ms_get_credits()
     return 0
 end
 
-local lives_addr = {"0x9820"}
-
 function ms_get_lives()
     val = mem:read_u8(lives_addr[1])
     if (val ~= nil) then
@@ -73,9 +121,6 @@ function ms_get_lives()
     return 0
 end
 
-local stage_addr = {"0x9821"}
-local prev_stage = 255;
-
 function ms_get_stage()
     val = mem:read_u8(stage_addr[1])
     if (val ~= nil) then
@@ -83,11 +128,6 @@ function ms_get_stage()
     end
     return 0
 end
-
--- prepare a socket for writing data and reading commands
-local socket = emu.file("rw")
-socket:open("socket.127.0.0.1:2159")
-local frame = 0
 
 function ms_on_frame_done()
     score = ms_get_score()
