@@ -1,51 +1,44 @@
 dofile "queue.lua"
 
--- -- Initialize a new queue "object"
-local q = Queue.new()
-
-Queue.push_back(q, 8)
-
-print("Size: " .. tostring(Queue.size(q)) .. ", Empty: " .. tostring(Queue.is_empty(q))) 
-
-val = Queue.pop_front(q)
-print(tostring(val)) -- should print "8"
-
-print("Size: " .. tostring(Queue.size(q)) .. ", Empty: " .. tostring(Queue.is_empty(q))) 
-
---- If the queue has a limited lifetime, free it for GC
-q = nil
-
 -- MAME Memory access object
 local cpu1mem = manager.machine.devices[":maincpu"].spaces["program"]
 local cpu2mem = manager.machine.devices[":sub"].spaces["program"]
-local memory_taps = {}                  -- table to keep taps from becoming orphaned and garbage collected
+local memory_taps = {}                      -- table to keep taps from becoming orphaned and garbage collected
 
 -- Memory locations
-local game_started_addr     = 0x9012    -- is a game currently in progress?
-local shot_addr             = 0x9846    -- lowest byte of player shots
-local hit_addr              = 0x9844    -- lowest byte of number of hits
-local score_addrs =                     -- VRAM locations of the player 1 score
+local game_started_addr     = 0x9012        -- is a game currently in progress?
+local shot_addr             = 0x9846        -- lowest byte of player shots
+local hit_addr              = 0x9844        -- lowest byte of number of hits
+local score_start_addr      = 0x83F8
+local score_end_addr        = 0x83FF
+local score_addrs =                         -- VRAM locations of the player 1 score
     {"0x83FF", "0x83FE", "0x83FD", "0x83FC","0x83FB","0x83FA","0x83F9","0x83F8"}
 local credits_addr          = 0x99B8
-local lives_addr = {"0x9820"}
-local stage_addr = {"0x9821"}
+local lives_addr            = 0x9820
+local stage_addr            = 0x9821
 
 
 -- Mechanics and statistics
-local rom_check_cleared     = false     -- boolean indicating if the rom check has been cleared
-local game_active           = false     -- boolean indicating whether a game is active
-local game_started          = -1        -- (u8:from mem) value indicating if a game has been started
-local shot_count            = 0         -- number tracking the number of shots fired in the current game, calculated via: (sc_rollover * 256) + sc_low_byte
-local sc_low_byte           = 0         -- (u8:from mem) low-byte of the number of shots fired
-local sc_rollover           = 0         -- number tracking the number of times during the current game the low-byte of the shots fired has wrapped from 255 to 0.
-local hit_count             = 0         -- number tracking the number of hits scored during the current game, calculated via: (hit_rollover * 256) + hit_low_byte
-local hit_low_byte          = 0         -- (u8:from mem) low-byte of the number of hits
-local hit_rollover          = 0         -- number tracking the number of times during the current game the low-byte of the hit counter has wrapped from 255 to 0.
-local accuracy              = 0
+local queues = {
+    ["shot_count"]          = Queue.new(),  -- queue tracking the number of shots fired in the current game, calculated via: (sc_rollover * 256) + sc_low_byte
+    ["hit_count"]           = Queue.new(),
+    ["accuracy"]            = Queue.new(),
+    ["credits"]             = Queue.new(),
+    ["lives"]               = Queue.new(),
+    ["stage"]               = Queue.new(),
+    ["score"]               = Queue.new()
+}
+local rom_check_cleared     = false         -- boolean indicating if the rom check has been cleared
+local game_active           = false         -- boolean indicating whether a game is active
+local game_started          = -1            -- (u8:from mem) value indicating if a game has been started
+local shot_count            = 0
+local sc_low_byte           = 0             -- (u8:from mem) low-byte of the number of shots fired
+local sc_rollover           = 0             -- number tracking the number of times during the current game the low-byte of the shots fired has wrapped from 255 to 0.
+local hit_low_byte          = 0             -- (u8:from mem) low-byte of the number of hits
+local hit_rollover          = 0             -- number tracking the number of times during the current game the low-byte of the hit counter has wrapped from 255 to 0.
 local prev_stage            = 255
-local credits               = 0
 local inf_credits           = true
-local frame = 0
+local frame                 = 0
 
 -- Socket for writing data and reading commands from Mothership app
 local socket = emu.file("rw")
@@ -122,15 +115,15 @@ function ms_register_game_started_tap()
 end
 ms_register_game_started_tap()
 
-
 function ms_shot_fired_write_cb(offset, data, mask)
     if (sc_low_byte == 255) then
         sc_rollover = sc_rollover + 1
     end
     if (data ~= nil) then
         sc_low_byte = data
-        shot_count = (256 * sc_rollover) + sc_low_byte
-        print("Shot: " .. tostring(shot_count))
+        local shot_count = (256 * sc_rollover) + sc_low_byte
+        Queue.push_back(queues["shot_count"], shot_count)
+        --print("Shot: " .. tostring(shot_count))
     end
 end
 
@@ -144,16 +137,17 @@ function ms_register_shot_fired_tap()
 end
 ms_register_shot_fired_tap()
 
-
 function ms_hits_write_cb(offset, data, mask)
     if (hit_low_byte == 255) then
         hit_rollover = hit_rollover + 1
     end
     hit_low_byte = data
-    hit_count = (256 * hit_rollover) + hit_low_byte
+    local hit_count = (256 * hit_rollover) + hit_low_byte
+    Queue.push_back(queues["hit_count"], hit_count)
     if (shot_count > 0) then
-        accuracy = hit_count / shot_count * 100
-        print("Hit/Acc: " .. tostring(hit_count) .. "/" .. tostring(accuracy) .. "%")
+        local accuracy = hit_count / shot_count * 100
+        Queue.push_back(queues["accuracy"], accuracy)
+        --print("Hit/Acc: " .. tostring(hit_count) .. "/" .. tostring(accuracy) .. "%")
     end
 end
 
@@ -170,12 +164,13 @@ end
 ms_register_hits_tap()
 
 function ms_credits_write_cb(offset, data, mask)
-    credits = tonumber(tostring(data // 16) .. tostring(data % 16))
-    print("Credits: " .. credits)
-    if (game_started == 0 and inf_credits) then
-        print("INFINITE POWER")
+    local credits = tonumber(tostring(data // 16) .. tostring(data % 16))
+    Queue.push_back(queues["credits"], credits)
+    --print("Credits: " .. credits)
+    --if (rom_check_cleared and inf_credits) then
+    --    print("INFINITE POWER")
         --return 0x99
-    end
+    --end
 end
 
 function ms_register_credits_tap()
@@ -188,59 +183,89 @@ function ms_register_credits_tap()
 end
 ms_register_credits_tap()
 
+function ms_score_write_cb(offset, data, mask)
+    print("Score offset: " .. tostring(offset - score_start_addr) .. ", Data: " .. tostring(data))
+end
 
-function ms_get_score()
-    score = ""
-    for k, addr in pairs(score_addrs) do
-    mem_val = cpu1mem:read_u8(addr)
-        if (mem_val < 0x0A) then
-                score = score .. tostring(mem_val)
+function ms_register_score_tap()
+    ms_register_write_tap(
+        cpu1mem,
+        score_start_addr,
+        score_end_addr,
+        ms_score_write_cb,
+        "ms_score_write_cb"
+    )
+end
+ms_register_score_tap()
+
+--function ms_get_score()
+--    score = ""
+--    for k, addr in pairs(score_addrs) do
+--    mem_val = cpu1mem:read_u8(addr)
+--        if (mem_val < 0x0A) then
+--                score = score .. tostring(mem_val)
+--        end
+--    end
+--
+--    ret_score = 0
+--    num_score = tonumber(score)
+--    if (num_score ~= nil) then
+--        ret_score = num_score
+--    end
+--    
+--    return ret_score
+--end
+
+function ms_lives_write_cb(offset, data, mask)
+    local lives = data
+    Queue.push_back(queues["lives"], lives)
+end
+
+function ms_register_lives_tap()
+    ms_register_write_tap(
+        cpu1mem,
+        lives_addr,
+        lives_addr,
+        ms_lives_write_cb,
+        "ms_lives_write_cb")
+end
+ms_register_lives_tap()
+
+function ms_stage_write_cb(offset, data, mask)
+    local stage = data
+    Queue.push_back(queues["stage"], stage)
+end
+
+function ms_register_stage_tap()
+    ms_register_write_tap(
+        cpu1mem,
+        stage_addr,
+        stage_addr,
+        ms_stage_write_cb,
+        "ms_stage_write_cb"
+    )
+end
+ms_register_stage_tap()
+
+function ms_on_frame_done()
+    --score = ms_get_score()
+    --credits = ms_get_credits()
+    --lives = ms_get_lives()
+    --stage = ms_get_stage()
+    frame = frame + 1
+
+    for k, v in pairs(queues) do
+        while (not Queue.is_empty(v)) do
+            local val = Queue.pop_front(v)
+            print(k .. ": " .. tostring(val))
+
+            if (k == "shot_count") then
+                shot_count = val
+            end
         end
     end
 
-    ret_score = 0
-    num_score = tonumber(score)
-    if (num_score ~= nil) then
-        ret_score = num_score
-    end
-    
-    return ret_score
-end
-
-function ms_get_credits()
-    val = cpu1mem:read_u8(credits_addr[1])
-    if (val ~= nil) then
-        credits = tonumber(tostring(val // 16) .. tostring(val % 16))
-        --print("Credits: " .. credits)
-        return credits
-    end
-    return 0
-end
-
-function ms_get_lives()
-    val = cpu1mem:read_u8(lives_addr[1])
-    if (val ~= nil) then
-        return val
-    end
-    return 0
-end
-
-function ms_get_stage()
-    val = cpu1mem:read_u8(stage_addr[1])
-    if (val ~= nil) then
-        return val
-    end
-    return 0
-end
-
-function ms_on_frame_done()
-    score = ms_get_score()
-    --credits = ms_get_credits()
-    lives = ms_get_lives()
-    stage = ms_get_stage()
-    frame = frame + 1
-
-    socket:write(frame .. ',' .. score .. ',' .. credits .. ',' .. lives .. ',' .. stage)
+    socket:write(frame)
 end
 
 emu.register_frame_done(ms_on_frame_done, "ms_on_frame_done")
