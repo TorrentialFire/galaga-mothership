@@ -63,3 +63,15 @@ end
 function Queue.size(list)
     return (list.back - list.front) + 1
 end
+
+--function Queue.peek_back(list)
+--    local back = list.back
+--    if list.back < front then error("queue is empty") end
+--    return list[back]
+--end
+--
+--function Queue.peek_front(list)
+--    local front = list.front
+--    if list.back < front then error("queue is empty") end
+--    return list[front]
+--end

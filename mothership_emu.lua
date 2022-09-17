@@ -39,6 +39,9 @@ local hit_rollover          = 0             -- number tracking the number of tim
 local prev_stage            = 255
 local inf_credits           = true
 local frame                 = 0
+local score                 = {}
+local prev_score            = {}
+local hit_count             = 0
 
 -- Socket for writing data and reading commands from Mothership app
 local socket = emu.file("rw")
@@ -88,6 +91,13 @@ function ms_on_game_started_reset()
     sc_rollover = 0
     hit_count = 0
     hit_rollover = 0
+
+    local ms_k = 1
+    while ms_k <= 8 do
+        prev_score[ms_k] = 0
+        score[ms_k] = 0
+        ms_k = ms_k + 1
+    end
 end
 
 -- Listener for writes to 'game_started_addr' to determine whether the player
@@ -183,8 +193,43 @@ function ms_register_credits_tap()
 end
 ms_register_credits_tap()
 
+-- Scores
+-- 50 for blue fly, 100 if flying
+-- 80 for red moth, 160 if flying
+-- 150 for galaga, 400 if flying, 800 if flying with 1 escort, 1600 if flying with 2 escorts
+-- 1000 when you clear a line in stage 3 (challenge stage 1)
+
+function get_score_value(vram_value)
+    if (vram_value > 9) then
+        return 0
+    end
+    return vram_value
+end
+
 function ms_score_write_cb(offset, data, mask)
-    print("Score offset: " .. tostring(offset - score_start_addr) .. ", Data: " .. tostring(data))
+    local rel_offset = offset - score_start_addr
+    local acc = 0
+    local pacc = 0
+    local i = 1
+    while i <= 8 do
+        if ((i - 1) == rel_offset) then
+            score[i] = get_score_value(data)
+        end
+        acc = acc + (score[i] * (10 ^ (i - 1)))
+        pacc = pacc + (prev_score[i] * (10 ^ (i - 1)))
+        i = i + 1
+    end
+
+    local diff = acc - pacc
+    if (diff >= 0) then
+        prev_score = {unpack(score)}
+        print("Acc: " .. tostring(acc) .. ", Pacc: " .. tostring(pacc) .. ", Diff: +" .. tostring(diff))
+    else
+        print("Diff: " .. tostring(diff))
+    end
+    --print("Score: " .. tostring(acc))
+
+    --print("Score offset: " .. tostring(offset - score_start_addr) .. ", Data: " .. tostring(data))
 end
 
 function ms_register_score_tap()
@@ -257,10 +302,13 @@ function ms_on_frame_done()
     for k, v in pairs(queues) do
         while (not Queue.is_empty(v)) do
             local val = Queue.pop_front(v)
-            print(k .. ": " .. tostring(val))
+            --print(k .. ": " .. tostring(val))
 
             if (k == "shot_count") then
                 shot_count = val
+            end
+            if (k == "hit_count") then
+                hit_count = val
             end
         end
     end
