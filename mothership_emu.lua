@@ -1,5 +1,22 @@
+dofile "queue.lua"
+
+-- -- Initialize a new queue "object"
+local q = Queue.new()
+
+Queue.push_back(q, 8)
+
+print("Size: " .. tostring(Queue.size(q)) .. ", Empty: " .. tostring(Queue.is_empty(q))) 
+
+val = Queue.pop_front(q)
+print(tostring(val)) -- should print "8"
+
+print("Size: " .. tostring(Queue.size(q)) .. ", Empty: " .. tostring(Queue.is_empty(q))) 
+
+--- If the queue has a limited lifetime, free it for GC
+q = nil
+
 -- MAME Memory access object
-local mem = manager.machine.devices[":maincpu"].spaces["program"]
+local cpu1mem = manager.machine.devices[":maincpu"].spaces["program"]
 local cpu2mem = manager.machine.devices[":sub"].spaces["program"]
 local memory_taps = {}                  -- table to keep taps from becoming orphaned and garbage collected
 
@@ -15,6 +32,7 @@ local stage_addr = {"0x9821"}
 
 
 -- Mechanics and statistics
+local rom_check_cleared     = false     -- boolean indicating if the rom check has been cleared
 local game_active           = false     -- boolean indicating whether a game is active
 local game_started          = -1        -- (u8:from mem) value indicating if a game has been started
 local shot_count            = 0         -- number tracking the number of shots fired in the current game, calculated via: (sc_rollover * 256) + sc_low_byte
@@ -35,18 +53,25 @@ socket:open("socket.127.0.0.1:2159")
 
 -- Useful for debugging when taps get garbage collected
 -- (i.e. they weren't properly registered with or they were removed from the memory_taps table)
-local sub = cpu2mem:add_change_notifier(
+local sub_cpu1 = cpu1mem:add_change_notifier(
     function(handler_type)
         print(handler_type .. " has changed! Was something GC'd!?")
    end
 )
-emu:register_stop(function() sub:unsubscribe() end)
+emu:register_stop(function() sub_cpu1:unsubscribe() end)
 
-function ms_register_tap(addr_start, addr_end, callback, tap_name)
+local sub_cpu2 = cpu2mem:add_change_notifier(
+    function(handler_type)
+        print(handler_type .. " has changed! Was something GC'd!?")
+   end
+)
+emu:register_stop(function() sub_cpu2:unsubscribe() end)
+
+function ms_register_write_tap(space, addr_start, addr_end, callback, tap_name)
     if (memory_taps[tap_name] == nil) then
         print("Tap \"" .. tap_name .. "\" not found, installing...")
         tap =
-            mem:install_write_tap(
+            space:install_write_tap(
                 addr_start,
                 addr_end,
                 tap_name,
@@ -74,11 +99,12 @@ end
 
 -- Listener for writes to 'game_started_addr' to determine whether the player
 -- has started a new game or when a game has ended.
-function ms_game_started_write_listener(offset, data, mask)
+function ms_game_started_write_cb(offset, data, mask)
     game_started = data
     if (game_started == 0) then
         print("Game ended")
         game_active = false
+        rom_check_cleared = true
     end
     if (game_started == 1) then
         print("Game started")
@@ -86,17 +112,18 @@ function ms_game_started_write_listener(offset, data, mask)
     end
 end
 
-function ms_register_game_started_listener()
-    ms_register_tap(
+function ms_register_game_started_tap()
+    ms_register_write_tap(
+        cpu1mem,
         game_started_addr, 
         game_started_addr, 
-        ms_game_started_write_listener,
-        "ms_game_started_write_listener")
+        ms_game_started_write_cb,
+        "ms_game_started_write_cb")
 end
-ms_register_game_started_listener()
+ms_register_game_started_tap()
 
 
-function ms_shot_fired_write_listener(offset, data, mask)
+function ms_shot_fired_write_cb(offset, data, mask)
     if (sc_low_byte == 255) then
         sc_rollover = sc_rollover + 1
     end
@@ -107,50 +134,42 @@ function ms_shot_fired_write_listener(offset, data, mask)
     end
 end
 
-function ms_register_shot_fired_listener()
-    ms_register_tap(
+function ms_register_shot_fired_tap()
+    ms_register_write_tap(
+        cpu1mem,
         shot_addr, 
         shot_addr, 
-        ms_shot_fired_write_listener,
-        "ms_shot_fired_write_listener")
+        ms_shot_fired_write_cb,
+        "ms_shot_fired_write_cb")
 end
-ms_register_shot_fired_listener()
+ms_register_shot_fired_tap()
 
--- something goes wrong around 80 - 88 hits, and this stops working
-function ms_hits_write_listener(offset, data, mask)
-    print("Hits write!")
+
+function ms_hits_write_cb(offset, data, mask)
     if (hit_low_byte == 255) then
         hit_rollover = hit_rollover + 1
     end
-    if (data ~= nil) then
-        hit_low_byte = data
-        hit_count = (256 * hit_rollover) + hit_low_byte
-        if (shot_count > 0) then
-            accuracy = hit_count / shot_count * 100
-            print("Hit: " .. tostring(hit_count))
-            print("Acc: " .. tostring(accuracy))
-        end
+    hit_low_byte = data
+    hit_count = (256 * hit_rollover) + hit_low_byte
+    if (shot_count > 0) then
+        accuracy = hit_count / shot_count * 100
+        print("Hit/Acc: " .. tostring(hit_count) .. "/" .. tostring(accuracy) .. "%")
     end
 end
 
-function ms_register_hits_listener()
-    --ms_register_tap(hit_addr, hit_addr, ms_hits_write_listener, "ms_hits_write_listener")
-    tap =
-        cpu2mem:install_write_tap(
-            hit_addr,
-            hit_addr,
-            "ms_hits_write_listener",
-            ms_hits_write_listener)
-    memory_taps["ms_hits_write_listener"] = tap
-    emu.register_stop(
-        function()
-            tap:remove()
-        end
-    )
+function ms_register_hits_tap()
+    -- The secondary CPU handles bullet/bug collision detection.
+    -- So, this tap is installed in cpu2mem instead (which overlaps with cpu1).
+    ms_register_write_tap(
+        cpu2mem,
+        hit_addr,
+        hit_addr,
+        ms_hits_write_cb,
+        "ms_hits_write_cb")
 end
-ms_register_hits_listener()
+ms_register_hits_tap()
 
-function ms_credits_write_listener(offset, data, mask)
+function ms_credits_write_cb(offset, data, mask)
     credits = tonumber(tostring(data // 16) .. tostring(data % 16))
     print("Credits: " .. credits)
     if (game_started == 0 and inf_credits) then
@@ -159,20 +178,21 @@ function ms_credits_write_listener(offset, data, mask)
     end
 end
 
-function ms_register_credits_listener()
-    ms_register_tap(
+function ms_register_credits_tap()
+    ms_register_write_tap(
+        cpu1mem,
         credits_addr, 
         credits_addr, 
-        ms_credits_write_listener,
-        "ms_credits_write_listener")
+        ms_credits_write_cb,
+        "ms_credits_write_cb")
 end
-ms_register_credits_listener()
+ms_register_credits_tap()
 
 
 function ms_get_score()
     score = ""
     for k, addr in pairs(score_addrs) do
-    mem_val = mem:read_u8(addr)
+    mem_val = cpu1mem:read_u8(addr)
         if (mem_val < 0x0A) then
                 score = score .. tostring(mem_val)
         end
@@ -188,7 +208,7 @@ function ms_get_score()
 end
 
 function ms_get_credits()
-    val = mem:read_u8(credits_addr[1])
+    val = cpu1mem:read_u8(credits_addr[1])
     if (val ~= nil) then
         credits = tonumber(tostring(val // 16) .. tostring(val % 16))
         --print("Credits: " .. credits)
@@ -198,7 +218,7 @@ function ms_get_credits()
 end
 
 function ms_get_lives()
-    val = mem:read_u8(lives_addr[1])
+    val = cpu1mem:read_u8(lives_addr[1])
     if (val ~= nil) then
         return val
     end
@@ -206,7 +226,7 @@ function ms_get_lives()
 end
 
 function ms_get_stage()
-    val = mem:read_u8(stage_addr[1])
+    val = cpu1mem:read_u8(stage_addr[1])
     if (val ~= nil) then
         return val
     end

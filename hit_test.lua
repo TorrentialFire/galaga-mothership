@@ -16,6 +16,8 @@ function ms_hits_write_tap(offset, data, mask)
     end
 end
 
+local tap = nil
+
 function ms_register_hits_tap()
     print("Registering tap")
     tap =
