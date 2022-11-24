@@ -157,7 +157,7 @@ function ms_hits_write_cb(offset, data, mask)
     if (shot_count > 0) then
         local accuracy = hit_count / shot_count * 100
         Queue.push_back(queues["accuracy"], accuracy)
-        --print("Hit/Acc: " .. tostring(hit_count) .. "/" .. tostring(accuracy) .. "%")
+        print("Hit/Acc: " .. tostring(hit_count) .. "/" .. tostring(accuracy) .. "%")
     end
 end
 
@@ -198,6 +198,10 @@ ms_register_credits_tap()
 -- 80 for red moth, 160 if flying
 -- 150 for galaga, 400 if flying, 800 if flying with 1 escort, 1600 if flying with 2 escorts
 -- 1000 when you clear a line in stage 3 (challenge stage 1)
+
+-- 0x0752
+-- 0x07E5 ld (hl),a
+-- 0x07E6 ret
 
 function get_score_value(vram_value)
     if (vram_value > 9) then

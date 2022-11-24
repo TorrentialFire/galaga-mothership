@@ -1,0 +1,12 @@
+#ifndef GM_GIT
+#define GM_GIT
+
+#include <string_view>
+
+namespace gm_git {
+    extern constexpr std::string_view commit = "${GIT_REV}${GIT_DIFF}";
+    extern std::string_view branch = "${GIT_BRANCH}";
+    extern std::string_view tag = "${GIT_TAG}";
+};
+
+#endif

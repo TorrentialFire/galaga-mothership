@@ -1,8 +1,10 @@
-#include <windows.h>
-#include <stdio.h>
-#include <tchar.h>
+#include "mothership.hpp"
 
-void _tmain(int argc, TCHAR *argv[]) {
+int _tmain(int argc, TCHAR *argv[]) {
+    std::cout << 
+        "branch: "   << gm_git::branch  << 
+        ", tag: "    << gm_git::tag     << 
+        ", commit: " << gm_git::commit  << "\n";
     STARTUPINFO si;
     PROCESS_INFORMATION pi;
 
@@ -12,7 +14,7 @@ void _tmain(int argc, TCHAR *argv[]) {
 
     if (argc != 2) {
         printf("Usage: %s [cmdline]\n", argv[0]);
-        return;
+        return EXIT_FAILURE;
     }
 
     //LPCSTR dir = "\"C:\\Users\\torre\\vcs\\galaga-mothership\\\"";
@@ -30,7 +32,7 @@ void _tmain(int argc, TCHAR *argv[]) {
         &pi)) {
         
         printf("CreateProcess failed (%d).\n", GetLastError());
-        return;
+        return EXIT_FAILURE;
     }
 
     WaitForSingleObject(pi.hProcess, INFINITE);
@@ -39,4 +41,5 @@ void _tmain(int argc, TCHAR *argv[]) {
     CloseHandle(pi.hThread);
 
     printf("[Mothership.exe]: Exiting...\n");
+    return EXIT_SUCCESS;
 }

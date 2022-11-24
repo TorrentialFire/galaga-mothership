@@ -1,0 +1,1 @@
+.\galaga_mothership.exe "mame.exe -console roms/galaga.zip -autoboot_script mothership_emu.lua -window"
