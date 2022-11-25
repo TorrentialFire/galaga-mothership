@@ -81,6 +81,7 @@ int _tmain(int argc, TCHAR *argv[]) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.Fonts->AddFontFromFileTTF("fonts/fira_mono.ttf", 26.0f);
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 
@@ -96,7 +97,7 @@ int _tmain(int argc, TCHAR *argv[]) {
     bool show_demo_window = true;
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-
+    ImGui::GetStyle().ScaleAllSizes(2.0f);
 
     while (!glfwWindowShouldClose(window))
     {
@@ -120,8 +121,11 @@ int _tmain(int argc, TCHAR *argv[]) {
         {
             static float f = 0.0f;
             static int counter = 0;
-
+            
             ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
+            
+            
+            //ImGui::InputFloat("Global Scale", &scale, 0.01f, 0.1f, "%.3f");
 
             ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
             ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
