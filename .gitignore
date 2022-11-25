@@ -2,6 +2,9 @@ galaga_mothership.exe
 galaga_mothership.pdb
 mothership.exe
 mothership.obj
+.vscode
+
+# Ignore CMake build files, but keep the directory
 build/**/*
 !build/.gitkeep
 

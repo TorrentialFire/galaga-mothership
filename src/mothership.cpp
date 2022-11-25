@@ -1,5 +1,16 @@
 #include "mothership.hpp"
 
+void error_callback(int error, const char* description)
+{
+    fprintf(stderr, "Error: %s\n", description);
+}
+
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+}
+
 int _tmain(int argc, TCHAR *argv[]) {
     std::cout << 
         "branch: "   << gm_git::branch  << 
@@ -34,6 +45,38 @@ int _tmain(int argc, TCHAR *argv[]) {
         printf("CreateProcess failed (%d).\n", GetLastError());
         return EXIT_FAILURE;
     }
+
+    glfwSetErrorCallback(error_callback);
+
+    if (!glfwInit())
+    {
+
+    }
+
+    GLFWwindow* window = glfwCreateWindow(640, 480, "Galaga Mothership", NULL, NULL);
+    if (!window)
+    {
+        // Window or OpenGL context creation failed
+        printf("Failed to create window");
+    }
+
+    glfwSetKeyCallback(window, key_callback);
+
+    glfwMakeContextCurrent(window);
+
+    glfwSwapInterval(1);
+
+    while (!glfwWindowShouldClose(window))
+    {
+        // Keep running
+
+        glfwSwapBuffers(window);
+
+        glfwPollEvents();
+    }
+
+    glfwDestroyWindow(window);
+    glfwTerminate();
 
     WaitForSingleObject(pi.hProcess, INFINITE);
 
