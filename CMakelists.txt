@@ -5,7 +5,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 project(galaga_mothership)
 
-add_executable(galaga_mothership src/mothership.cpp)
+add_executable(galaga_mothership 
+    src/mothership.cpp
+    glad/src/gl.c
+    glad/src/wgl.c
+    imgui/imgui.cpp
+    imgui/imgui_demo.cpp
+    imgui/imgui_draw.cpp
+    imgui/imgui_tables.cpp
+    imgui/imgui_widgets.cpp
+    imgui/backends/imgui_impl_opengl3.cpp
+    imgui/backends/imgui_impl_glfw.cpp
+    )
+
+target_include_directories(galaga_mothership
+    PUBLIC include 
+    PUBLIC glad/include
+    PUBLIC imgui
+    PUBLIC imgui/backends
+)
 
 set_target_properties(galaga_mothership PROPERTIES
                       RUNTIME_OUTPUT_DIRECTORY_DEBUG ../
@@ -46,8 +64,6 @@ endif()
 
 configure_file(src/git.hpp.in ../src/git.hpp)
 # END Configure git information
-
-include_directories(include)
 
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)

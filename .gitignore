@@ -3,6 +3,7 @@ galaga_mothership.pdb
 mothership.exe
 mothership.obj
 .vscode
+imgui.ini
 
 # Ignore CMake build files, but keep the directory
 build/**/*
