@@ -314,10 +314,12 @@ function ms_on_frame_done()
             if (k == "hit_count") then
                 hit_count = val
             end
+
+            socket:write(k .. ": " .. val);
         end
     end
 
-    socket:write(frame)
+    --socket:write(frame)
 end
 
 emu.register_frame_done(ms_on_frame_done, "ms_on_frame_done")
