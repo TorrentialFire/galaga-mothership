@@ -11,116 +11,8 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
         glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
 
-void lua_server_func(const char *port) {
-    struct addrinfo *result = NULL;
-    struct addrinfo *ptr = NULL;
-    struct addrinfo hints;
-    ZeroMemory(&hints, sizeof(hints));
-
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-    hints.ai_flags = AI_PASSIVE;
-
-    int get_addr_info_result = getaddrinfo(NULL, port, &hints, &result);
-    if (get_addr_info_result != 0) {
-        std::cerr << "getaddrinfo failed: " << get_addr_info_result << "\n";
-        return;
-    }
-
-    SOCKET svr_sock = INVALID_SOCKET;
-    ptr = result;
-
-    svr_sock = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
-    if (svr_sock == INVALID_SOCKET) {
-        std::cerr << "Error at socket(): " << WSAGetLastError() << "\n";
-        freeaddrinfo(result);
-        return;
-    }
-
-    int bind_result = bind(svr_sock, result->ai_addr, (int)(result->ai_addrlen));
-    if (bind_result == SOCKET_ERROR) {
-        std::cerr << "Failed to bind socket: " << WSAGetLastError() << "\n";
-        freeaddrinfo(result);
-        closesocket(svr_sock);
-        return;
-    }
-
-    if (listen(svr_sock, 1) == SOCKET_ERROR) {
-        std::cerr << "Listen failed: " << WSAGetLastError() << "\n";
-        closesocket(svr_sock);
-        freeaddrinfo(result);
-        return;
-    }
-
-    SOCKET c_sock = INVALID_SOCKET;
-
-    c_sock = accept(svr_sock, NULL, NULL);
-    if (c_sock == INVALID_SOCKET) {
-        std::cerr << "Accept failed: " << WSAGetLastError() << "\n";
-        closesocket(c_sock);
-        closesocket(svr_sock);
-        freeaddrinfo(result);
-        return;
-    }
-
-    const int recv_buf_len = DEFAULT_BUFLEN;
-    char recv_buf[recv_buf_len];
-    int recv_result;
-
-    do {
-        recv_result = recv(c_sock, recv_buf, recv_buf_len, 0);
-        if (recv_result > 0) {
-            recv_buf[recv_result] = '\0'; // null terminate the buffer at the number of bytes read on receive
-            std::cout << "[Server]: " << recv_buf << "\n";
-        } else if (recv_result == 0) {
-            std::cout << "Connection closed.\n";
-        } else {
-            std::cerr << "Receive failed: " << WSAGetLastError() << "\n";
-        }
-    } while (recv_result > 0);
-
-//    int connect_result;
-//    do {
-//        connect_result = connect(svr_sock, ptr->ai_addr, (int)(ptr->ai_addrlen));
-//        if (connect_result == SOCKET_ERROR) {
-//            int last_error = WSAGetLastError();
-//            std::cout << "Failed at connect(): " << last_error << "\n";
-//            
-//            if (last_error == 10061) { // Connection refused (server wasn't ready)
-//                std::cout << "Retrying in 5 seconds...\n";
-//                std::this_thread::sleep_for(std::chrono::seconds(5));
-//            } else {
-//                closesocket(svr_sock);
-//                freeaddrinfo(result);
-//                return;
-//            }
-//        }
-//    } while (connect_result != 0); 
-//
-//    std::cout << "Socket connected!\n";
-//    // Now let's get some data!
-//    const int recv_buf_len = DEFAULT_BUFLEN;
-//    char recv_buf[recv_buf_len];
-//    int recv_result;
-//
-//    do {
-//        recv_result = recv(C2_COMMONSEPARATOR, recv_buf, recv_buf_len, 0);
-//        if (recv_result > 0) {
-//            std::cout << recv_buf << "\n";
-//        } else if (recv_result == 0) {
-//            std::cout << "Connection closed.\n";
-//        } else {
-//            std::cerr << "Receive failed: " << WSAGetLastError() << "\n";
-//        }
-//    } while (recv_result > 0);
-
-    closesocket(c_sock);
-    closesocket(svr_sock);
-    freeaddrinfo(result);
-}
-
 int _tmain(int argc, TCHAR *argv[]) {
+
     std::cout << 
         "branch: "   << gm_git::branch  << 
         ", tag: "    << gm_git::tag     << 
@@ -150,9 +42,9 @@ int _tmain(int argc, TCHAR *argv[]) {
     }
 
     // Start a thread to listen for a connection from the lua script (MAME)
-    std::thread lua_server(lua_server_func, LUA_SERVER_PORT);
-
-    //LPCSTR dir = "\"C:\\Users\\torre\\vcs\\galaga-mothership\\\"";
+    mame::server_config config = { .port = MAME_COMMS_SERVER_PORT };
+    auto comms_server = mame::comms_server::init(config);
+    comms_server->start();
 
     if (!CreateProcess(
         NULL,
@@ -302,9 +194,6 @@ int _tmain(int argc, TCHAR *argv[]) {
 
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
-
-    //lua_server.join();
-    WSACleanup();
 
     printf("[Mothership.exe]: Exiting...\n");
     return EXIT_SUCCESS;

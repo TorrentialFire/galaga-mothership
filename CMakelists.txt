@@ -16,9 +16,23 @@ add_executable(galaga_mothership
     imgui/imgui_widgets.cpp
     imgui/backends/imgui_impl_opengl3.cpp
     imgui/backends/imgui_impl_glfw.cpp
-    )
+    src/mame_comms_server.hpp
+    src/mame_comms_server.cpp
+)
+
+if (WIN32)
+# Include Windows specific sources here.
+target_sources(galaga_mothership
+    PRIVATE
+    src/win32_mame_comms_server.hpp
+    src/win32_mame_comms_server.cpp
+)
+elseif (UNIX)
+# Include Linux specific sources here.
+endif (WIN32)
 
 target_include_directories(galaga_mothership
+    PUBLIC src
     PUBLIC include 
     PUBLIC glad/include
     PUBLIC imgui

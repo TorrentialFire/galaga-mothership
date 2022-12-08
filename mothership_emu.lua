@@ -9,8 +9,8 @@ local memory_taps = {}                      -- table to keep taps from becoming 
 local game_started_addr     = 0x9012        -- is a game currently in progress?
 local shot_addr             = 0x9846        -- lowest byte of player shots
 local hit_addr              = 0x9844        -- lowest byte of number of hits
-local score_start_addr      = 0x83F8
-local score_end_addr        = 0x83FF
+local score_start_addr      = 0x83F8        -- first byte of the score (P1? P2?) in memory
+local score_end_addr        = 0x83FF        -- last byte of the score (P1? P2?) in memory
 local score_addrs =                         -- VRAM locations of the player 1 score
     {"0x83FF", "0x83FE", "0x83FD", "0x83FC","0x83FB","0x83FA","0x83F9","0x83F8"}
 local credits_addr          = 0x99B8
