@@ -11,6 +11,9 @@
 #pragma comment(lib, "Ws2_32.lib")
 
 #include "mame_comms_server.hpp"
+#include "quick_n_dirty_global.hpp"
+
+#define DEFAULT_BUFLEN 1024 * 64
 
 using mame::server_config;
 using mame::comms_server;

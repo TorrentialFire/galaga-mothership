@@ -2,7 +2,6 @@
 #define _MAME_COMMS_SRV_H_
 
 #define MAME_COMMS_SERVER_PORT 2159
-#define DEFAULT_BUFLEN 512
 
 #define port_t uint16_t
 

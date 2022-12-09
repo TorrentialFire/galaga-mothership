@@ -1,7 +1,9 @@
 #include "win32_mame_comms_server.hpp"
 
 #include <iostream>
+#include <vector>
 #include <string>
+#include <sstream>
 #include <exception>
 #include <stdexcept>
 
@@ -92,6 +94,34 @@ void win32_mame_comms_server::listen_for_conn() {
     }
 }
 
+//https://stackoverflow.blog/2019/10/11/c-creator-bjarne-stroustrup-answers-our-top-five-c-questions/?_ga=2.66457646.1892259528.1670394929-1499581672.1668560933
+template<typename Delim>
+std::string get_word(std::istream& ss, Delim d)
+{
+    std::string word;
+    for (char ch; ss.get(ch); )    // skip delimiters
+        if (!d(ch)) {
+            word.push_back(ch);
+            break;
+        }
+    for (char ch; ss.get(ch); )    // collect word
+        if (!d(ch))
+            word.push_back(ch);
+        else
+            break;
+    return word;
+}
+
+std::vector<std::string> split(const std::string& s, const std::string& delim)
+{
+    std::stringstream ss(s);
+    auto del = [&](char ch) { for (auto x : delim) if (x == ch) return true; return false; };
+
+    std::vector<std::string> words;
+    for (std::string w; (w = get_word(ss, del))!= ""; ) words.push_back(w);
+    return words;
+}
+
 void win32_mame_comms_server::read_from_mame_client() {
     const int recv_buf_len = DEFAULT_BUFLEN - 1;
     char recv_buf[DEFAULT_BUFLEN];
@@ -102,6 +132,40 @@ void win32_mame_comms_server::read_from_mame_client() {
         if (recv_result > 0) {
             recv_buf[recv_result] = '\0'; // null terminate the buffer at the number of bytes read on receive
             std::cout << "[Server]: " << recv_buf << "\n";
+
+            std::stringstream ss;
+            ss << recv_buf;
+            std::string token;
+
+            auto g = globals.load();
+
+            while(std::getline(ss, token, ' ')) {
+                auto words = split(token, ":");
+
+                std::string queue = words[0];
+                std::string value = words[1];
+                if (queue == "score") {
+                    g.score = std::stoul(value, nullptr, 10);
+                } else if (queue == "stage") {
+                    g.stage = std::stoul(value, nullptr, 10);
+                } else if (queue == "lives") {
+                    g.lives = std::stoul(value, nullptr, 10);
+                } else if (queue == "credits") {
+                    g.credits = std::stoul(value, nullptr, 10);
+                } else if (queue == "accuracy") {
+                    g.accuracy = std::stof(value, nullptr);
+                } else if (queue == "hit_count") {
+                    g.hit_count = std::stoul(value, nullptr, 10);
+                } else if (queue == "shot_count") {
+                    g.shot_count = std::stoul(value, nullptr, 10);
+                }
+                
+            }
+
+            globals.store(g);
+
+            
+
         } else if (recv_result == 0) {
             std::cout << "Connection closed.\n";
         } else {

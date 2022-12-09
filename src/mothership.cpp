@@ -1,5 +1,7 @@
 #include "mothership.hpp"
 
+std::atomic<global_t> globals({0});
+
 void error_callback(int error, const char* description)
 {
     fprintf(stderr, "Error: %s\n", description);
@@ -9,6 +11,49 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GLFW_TRUE);
+}
+
+class simple_tex {
+public:
+    GLuint texture;
+    int width;
+    int height;
+};
+
+// Simple helper function to load an image into a OpenGL texture with common settings, returns null if texture can't be created
+bool load_texture_from_file(const char* filename, simple_tex * tex)
+{
+    // Load from file
+    int image_width = 0;
+    int image_height = 0;
+    unsigned char* image_data = stbi_load(filename, &image_width, &image_height, NULL, 4);
+    if (image_data == NULL)
+        return false;
+
+    // Create a OpenGL texture identifier
+    GLuint image_texture;
+    glGenTextures(1, &image_texture);
+    glBindTexture(GL_TEXTURE_2D, image_texture);
+
+    // Setup filtering parameters for display
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); // This is required on WebGL for non power-of-two textures
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // Same
+
+    // Upload pixels into texture
+#if defined(GL_UNPACK_ROW_LENGTH) && !defined(__EMSCRIPTEN__)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+#endif
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image_width, image_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image_data);
+    stbi_image_free(image_data);
+
+    //std::unique_ptr<simple_tex> tex = std::make_unique<simple_tex>();
+    tex->texture = image_texture;
+    tex->width = image_width;
+    tex->height = image_height;
+
+    return true;
 }
 
 int _tmain(int argc, TCHAR *argv[]) {
@@ -74,7 +119,7 @@ int _tmain(int argc, TCHAR *argv[]) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Galaga Mothership", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(300, 1064, "Galaga Mothership", NULL, NULL);
     if (!window)
     {
         // Window or OpenGL context creation failed
@@ -93,6 +138,43 @@ int _tmain(int argc, TCHAR *argv[]) {
 
     // Successfully loaded OpenGL
     printf("Loaded OpenGL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+
+    std::string fname_prefix = "images/";
+    std::string fname_suffix = ".png";
+    std::vector<std::string> sprite_fnames = {
+        "fighter(64x64)",
+        "zako(64x64)",
+        "goei(64x64)",
+        "boss(64x64)",
+        "tombo(64x64)",
+        "ogawamushi(64x64)",
+        "momiji(64x64)",
+        "ei(64x64)",
+        "galaxian(64x64)",
+        "enterprise(64x64)"
+    };
+    simple_tex textures[10];
+
+    std::unordered_map<std::string, simple_tex*> sprite_map;
+
+    //for (std::string fname : sprite_fnames) {
+    for (size_t i = 0; i < 10; i++) {
+        //std::string full_fname = fname_prefix + fname + fname_suffix;
+        std::string fname = sprite_fnames[i];
+        std::string full_fname = fname_prefix + fname + fname_suffix;
+        simple_tex *tex = (textures + i);
+        bool success = load_texture_from_file(full_fname.c_str(), tex);
+        if (!success) {
+            std::cerr << "Bad news!\n";
+        }
+        sprite_map[fname] = tex;
+    }
+    
+    std::unordered_map<std::string, std::size_t> counter_map;
+
+    for (std::string fname : sprite_fnames) {
+        counter_map[fname] = 0;
+    }
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -130,35 +212,55 @@ int _tmain(int argc, TCHAR *argv[]) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
+        // 1. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
+        {
+            #ifdef IMGUI_HAS_VIEWPORT
+            auto viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(viewport->WorkPos);
+            ImGui::SetNextWindowSize(viewport->WorkSize);
+            ImGui::SetNextWindowViewport(viewport->ID);
+            #else
+            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+            ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+            #endif
+
+            // Push down the window rounding style
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+
+            float scale_fac = 1.0f;
+            ImGui::Begin("Mothership Main View", (bool *)0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+            auto g = globals.load();
+            float accuracy = (float)g.hit_count * 100.0f / (float)g.shot_count;
+            ImGui::Text("Score: %ld", g.score);
+            ImGui::Text("Credits: %ld", g.credits);
+            ImGui::Text("Stage: %ld", g.stage);
+            ImGui::Text("Lives: %ld", g.lives);
+            ImGui::Text("Shot Count: %ld", g.shot_count);
+            ImGui::Text("Hit Count: %ld", g.hit_count);
+            ImGui::Text("Accuracy: %0.2f%%", accuracy);
+
+            ImGui::AlignTextToFramePadding();
+            for (std::string fname : sprite_fnames) {
+                auto sprite = sprite_map[fname];
+                // TODO - Adjust text alignment vertically
+                ImGui::Image((void*)(intptr_t)sprite->texture, ImVec2(scale_fac * sprite->width, scale_fac * sprite->height));
+                auto count = counter_map[fname];
+                ImGui::SameLine();
+                ImGui::Text("%d", count);
+            }
+
+            ImGui::Text("Viewport (w x h): %f x %f", viewport->WorkSize.x, viewport->WorkSize.y);
+
+            ImGui::End();
+
+            // Pop off the window rounding style
+            ImGui::PopStyleVar(1);
+        }
+
+        // 2. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
         if (show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
-
-        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
-        {
-            static float f = 0.0f;
-            static int counter = 0;
-            
-            ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-            
-            
-            //ImGui::InputFloat("Global Scale", &scale, 0.01f, 0.1f, "%.3f");
-
-            ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-            ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-            ImGui::Checkbox("Another Window", &show_another_window);
-
-            ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-            ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-
-            if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-                counter++;
-            ImGui::SameLine();
-            ImGui::Text("counter = %d", counter);
-
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-            ImGui::End();
-        }
 
         // 3. Show another simple window.
         if (show_another_window)

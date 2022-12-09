@@ -156,7 +156,7 @@ function ms_hits_write_cb(offset, data, mask)
     Queue.push_back(queues["hit_count"], hit_count)
     if (shot_count > 0) then
         local accuracy = hit_count / shot_count * 100
-        Queue.push_back(queues["accuracy"], accuracy)
+        --Queue.push_back(queues["accuracy"], accuracy)
         print("Hit/Acc: " .. tostring(hit_count) .. "/" .. tostring(accuracy) .. "%")
     end
 end
@@ -228,6 +228,7 @@ function ms_score_write_cb(offset, data, mask)
     if (diff >= 0) then
         prev_score = {unpack(score)}
         print("Acc: " .. tostring(acc) .. ", Pacc: " .. tostring(pacc) .. ", Diff: +" .. tostring(diff))
+        Queue.push_back(queues["score"], acc)
     else
         print("Diff: " .. tostring(diff))
     end
@@ -296,12 +297,14 @@ function ms_register_stage_tap()
 end
 ms_register_stage_tap()
 
+
 function ms_on_frame_done()
     --score = ms_get_score()
     --credits = ms_get_credits()
     --lives = ms_get_lives()
     --stage = ms_get_stage()
     frame = frame + 1
+
 
     for k, v in pairs(queues) do
         while (not Queue.is_empty(v)) do
@@ -315,7 +318,7 @@ function ms_on_frame_done()
                 hit_count = val
             end
 
-            socket:write(k .. ": " .. val);
+            socket:write(k .. ":" .. val .. " ");
         end
     end
 
